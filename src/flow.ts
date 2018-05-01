@@ -16,6 +16,10 @@ export namespace flow {
   export const gitDir = path.join(vscode.workspace.rootPath!, '.git');
   export const gitflowDir = path.join(gitDir, '.gitflow');
 
+  // gitflowHooksDir points to the disk locaiton of the Git hooks folder.
+  // Your bash-compatible scripts should be located in this folder.
+  export const gitflowHooksDir = path.join(gitDir, 'hooks');
+
   /**
    * Get the release branch prefix
    */
@@ -170,6 +174,23 @@ export namespace flow {
     vscode.window.showInformationMessage(
         'Gitflow has been initialized for this repository!');
   }
+
+  /**
+   * The hook function implements Git Hook handling for Gitflow.
+   */
+  export async function hook(stage: string, flow: string, action: string) {
+    // Construct the (extension-less) file name of the hook that corresponds to the specified event, 
+    // following the file naming pattern: {stage}-flow-{flow}-{action}, i.e.:
+    // pre-flow-feature-start
+    const hookCommand = path.join(gitflowHooksDir, stage + '-flow-' + flow + '-' + action);
+
+    // If the hook file exists, execute the sh command against it
+    // On Windows, install Git Extensions http://gitextensions.github.io/ and add to your PATH
+    if (await fs.exists(hookCommand)) {
+      await cmd.executeRequired('sh', [hookCommand]);
+    }
+  }
+
 }
 
 export namespace flow.feature {
@@ -220,8 +241,16 @@ export namespace flow.feature {
 
     // Create our new branch
     const local_develop = await developBranch();
+
+    // Execute the hook pre-flow-feature-start.
+    flow.hook('pre', 'feature', 'start');
+
     await cmd.executeRequired(
         git.info.path, ['checkout', '-b', new_branch.name, local_develop.name]);
+
+    // Execute the hook post-flow-feature-start.
+    flow.hook('post', 'feature', 'start');
+
     vscode.window.showInformationMessage(
         `New branch "${new_branch.name}" was created`);
   }
@@ -261,6 +290,9 @@ export namespace flow.feature {
   }
 
   export async function finish(branchType: string) {
+    // Execute the hook pre-flow-feature-finish.
+    flow.hook('pre', 'feature', 'finish');
+
     return withProgress({
       location: vscode.ProgressLocation.Window,
       title: `Finishing ${branchType}`,
@@ -344,6 +376,10 @@ export namespace flow.feature {
       }
       await cmd.executeRequired(git.info.path, ['branch', '-d', branch.name]);
     }
+
+    // Execute the hook post-flow-feature-finish.
+    flow.hook('post', 'feature', 'finish');
+
     vscode.window.showInformationMessage(
         `${branchType.substring(0, 1).toUpperCase()}${branchType.substring(1)} branch ${branch.name} has been closed`);
   }
@@ -404,16 +440,24 @@ export namespace flow.release {
       });
     }
 
+    // Execute the hook pre-flow-release-start.
+    flow.hook('pre', 'release', 'start');
+
     const prefix = await releasePrefix();
     const new_branch = git.BranchRef.fromName(`${prefix}${name}`);
     const develop = await developBranch();
     await cmd.executeRequired(
         git.info.path, ['checkout', '-b', new_branch.name, develop.name]);
+        
+    // Execute the hook post-flow-release-start.      
+    flow.hook('post', 'release', 'start');    
+        
     await vscode.window.showInformationMessage(
         `New branch ${new_branch.name} has been created. ` +
         `Now is the time to update your version numbers and fix any ` +
         `last minute bugs.`);
-  }
+
+      }
 
   export async function finish() {
     await requireFlowEnabled();
@@ -430,6 +474,10 @@ export namespace flow.release {
 
   export async function finalizeWithBranch(
       rel_prefix: string, branch: git.BranchRef, reenter: Function) {
+
+    // Execute the hook pre-flow-release-finish.
+    flow.hook('pre', 'release', 'finish');
+
     return withProgress({
       location: vscode.ProgressLocation.Window,
       title: 'Finishing release branch'
@@ -524,6 +572,9 @@ export namespace flow.release {
         }
       }
 
+    // Execute the hook post-flow-release-finish.
+    flow.hook('post', 'release', 'finish');
+
       vscode.window.showInformationMessage(
           `The release "${release_name
           }" has been created. You are now on the ${develop.name} branch.`);
@@ -599,9 +650,16 @@ export namespace flow.hotfix {
       fail.error(
           {message: `"${new_branch.name}" is the name of an existing branch`});
     }
+
+    // Execute the hook pre-flow-hotfix-start.
+    flow.hook('pre', 'hotfix', 'start');
+
     await cmd.executeRequired(
         git.info.path, ['checkout', '-b', new_branch.name, master.name]);
-  }
+  
+    // Execute the hook post-flow-hotfix-start.
+    flow.hook('post', 'hotfix', 'start');
+}
 
   export async function finish() {
     await requireFlowEnabled();
@@ -613,6 +671,13 @@ export namespace flow.hotfix {
     if (!current_hotfix) {
       throw fail.error({message: 'No active hotfix branch to finish'});
     }
+
+    // Execute the hook pre-flow-hotfix-finish.
+    flow.hook('pre', 'hotfix', 'finish');
+
     await release.finalizeWithBranch(prefix, current_hotfix, finish);
+
+    // Execute the hook post-flow-hotfix-finish.
+    flow.hook('post', 'hotfix', 'finish');
   }
 }
